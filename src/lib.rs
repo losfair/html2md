@@ -92,7 +92,7 @@ pub fn parse_html_extended(html: &str) -> String {
         fn instantiate(&self) -> Box<dyn TagHandler> {
             return Box::new(HtmlCherryPickHandler::default());
         }
-    };
+    }
 
     let mut tag_factory: HashMap<String, Box<dyn TagHandlerFactory>> = HashMap::new();
     tag_factory.insert(String::from("span"), Box::new(SpanAsIsTagFactory{}));
@@ -112,7 +112,7 @@ fn walk(input: &Handle, result: &mut StructuredPrinter, custom: &HashMap<String,
     match input.data {
         NodeData::Document | NodeData::Doctype {..} | NodeData::ProcessingInstruction {..} => {},
         NodeData::Text { ref contents }  => {
-            let mut text = contents.borrow().to_string();
+            let text = contents.borrow().to_string();
             let inside_pre = result.parent_chain.iter().any(|tag| tag == "pre");
             if inside_pre {
                 // this is preformatted text, insert as-is
@@ -121,10 +121,6 @@ fn walk(input: &Handle, result: &mut StructuredPrinter, custom: &HashMap<String,
                 // in case it's not just a whitespace after the newline or another whitespace
 
                 // regular text, collapse whitespace and newlines in text
-                let inside_code = result.parent_chain.iter().any(|tag| tag == "code");
-                if !inside_code {
-                    text = escape_markdown(result, &text);
-                }
                 let minified_text = EXCESSIVE_WHITESPACE_PATTERN.replace_all(&text, " ");
                 let minified_text = minified_text.trim_matches(|ch: char| ch == '\n' || ch == '\r');
                 result.append_str(&minified_text);
@@ -207,24 +203,6 @@ fn walk(input: &Handle, result: &mut StructuredPrinter, custom: &HashMap<String,
 
     // finish handling of tag - parent chain now doesn't contain this tag itself again
     handler.after_handle(result);
-}
-
-/// This conversion should only be applied to text tags
-///
-/// Escapes text inside HTML tags so it won't be recognized as Markdown control sequence
-/// like list start or bold text style
-fn escape_markdown(result: &StructuredPrinter, text: &str) -> String {
-    // always escape bold/italic/strikethrough
-    let mut data = MARKDOWN_MIDDLE_KEYCHARS.replace_all(&text, "\\$0").to_string();
-
-    // if we're at the start of the line we need to escape list- and quote-starting sequences
-    if START_OF_LINE_PATTERN.is_match(&result.data) {
-        data = MARKDOWN_STARTONLY_KEYCHARS.replace(&data, "$1\\$2").to_string();
-    }
-
-    // no handling of more complicated cases such as
-    // ![] or []() ones, for now this will suffice
-    return data;
 }
 
 /// Called after all processing has been finished
