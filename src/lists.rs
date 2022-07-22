@@ -1,21 +1,43 @@
+use std::cell::Cell;
+
 use super::TagHandler;
 use super::StructuredPrinter;
 
 use markup5ever_rcdom::Handle;
+use markup5ever_rcdom::NodeData;
+
+thread_local! {
+    static LAST_OL_START_INDEX: Cell<Option<u32>> = Cell::new(None);
+}
 
 #[derive(Default)]
 pub(super) struct ListHandler {
+    saved_last_ol_start_index: Option<u32>,
 }
 
 impl TagHandler for ListHandler {
 
     /// we're entering "ul" or "ol" tag, no "li" handling here
-    fn handle(&mut self, _tag: &Handle, printer: &mut StructuredPrinter) {
+    fn handle(&mut self, tag: &Handle, printer: &mut StructuredPrinter) {
+        LAST_OL_START_INDEX.with(|x| {
+            self.saved_last_ol_start_index = x.get();
+            match &tag.data {
+                NodeData::Element { name, attrs, .. } if name.local == *"ol" => {
+                    let attrs = attrs.borrow();
+                    let value = attrs.iter().find(|x| x.name.local == *"start").and_then(|x| x.value.parse::<u32>().ok());
+                    x.set(value);
+                }
+                _ => {
+                    x.set(None);
+                }
+            }
+        });
         printer.insert_newline();
     }
 
     /// indent now-ready list
     fn after_handle(&mut self, printer: &mut StructuredPrinter) {
+        LAST_OL_START_INDEX.with(|x| x.set(self.saved_last_ol_start_index));
         printer.insert_newline();
         printer.insert_newline();
     }
@@ -48,7 +70,8 @@ impl TagHandler for ListItemHandler {
         }
 
         let current_depth = printer.parent_chain.len();
-        let order = printer.siblings[&current_depth].len() + 1;
+        let start = LAST_OL_START_INDEX.with(|x| x.get()).unwrap_or(1) as usize;
+        let order = printer.siblings[&current_depth].len() + start;
         match self.list_type.as_ref() {
             "ul" | "menu" => printer.append_str("* "), // unordered list: *, *, *
             "ol" => printer.append_str(&(order.to_string() + ". ")), // ordered list: 1, 2, 3
